@@ -1,38 +1,35 @@
 # Maze-Solver
 Interactive maze pathfinding visualizer implementing BFS, DFS, and A* with real-time step-by-step animation and performance comparison.
 
-🚀 Features
+# 🧠 Maze Solver – Interactive Pathfinding Visualizer
 
-Three Algorithms
+An interactive maze pathfinding visualizer built with **Python** and **Pygame**, demonstrating **BFS**, **DFS**, and **A\*** search algorithms through real-time step-by-step animation and performance benchmarking.
 
-BFS – Shortest path guarantee
+---
 
-DFS – Fast exploration (not optimal)
+## 🚀 Features
 
-A* – Heuristic-based optimal search
+### 🔹 Algorithms Implemented
+- **BFS (Breadth-First Search)** – Guarantees shortest path  
+- **DFS (Depth-First Search)** – Fast exploration, not optimal  
+- **A\*** – Heuristic-based optimal search  
 
-Step-by-Step Visualization
+### 🔹 Visualization
+- Real-time node exploration  
+- Final path reconstruction  
 
-Real-time node exploration
+### 🔹 Performance Comparison
+- Path length  
+- Nodes explored  
+- Execution time  
 
-Path reconstruction display
+### 🔹 Maze Controls
+- Random maze generation  
+- Multi-exit support  
+- Wall toggle & reset functionality  
 
-Algorithm Comparison
+---
 
-Path length
+## 🛠 Tech Stack
 
-Nodes explored
-
-Execution time
-
-Dynamic Maze Controls
-
-Random maze generation
-
-Multi-exit support
-
-Wall toggle & reset
-
-🛠 Tech Stack
-
-Python • Pygame-ce • Queue • Stack • Priority Queue
+**Python** • **Pygame-ce** • **Queue** • **Stack** • **Priority Queue**
