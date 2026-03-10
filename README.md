@@ -17,6 +17,7 @@ https://github.com/user-attachments/assets/3afea3b6-720d-431e-bb30-273b0c20b4b0
 - **Wall toggle**: Remove/restore walls to see how algorithms behave
 
 ## Setup
+clear
 
 ```bashcd path/to/your/maze-solver
 
