@@ -1,497 +1,470 @@
 """
-Maze Solver - Main Entry Point
-==============================
-A visual maze solver demonstrating BFS, DFS, A*, and Ant Colony Optimization (ACO).
+algorithms.py
+=============
+Search algorithm implementations for the Maze Solver project.
 
-Controls:
-    1/2/3/4       - Run BFS/DFS/A*/ACO (fast)
-    Shift+1/2/3/4 - Run BFS/DFS/A*/ACO step-by-step
-    C - Compare all algorithms
-    N - Generate new random maze
-    W - Toggle walls on/off
-    R - Reset
-    Q - Quit
+Includes:
+- BFS
+- DFS
+- A*
+- Ant Colony Optimization (ACO)
 
-Step-by-step controls:
-    SPACE - Next step
-    F - Fast forward
-    S - Slow auto-play
+Expected by main.py:
+    from algorithms import bfs, dfs, astar, aco
 
-Usage:
-    python main.py
+This file is written to be fairly tolerant of different Maze class designs.
+It tries these, in order:
+1. maze.get_neighbors(pos)
+2. maze.get_valid_neighbors(pos)
+3. maze.neighbors(pos)
+4. derive neighbors from common maze fields like walls/grid
+
+Expected Maze fields/methods (at least some of these):
+- maze.start -> (row, col)
+- maze.exits -> list/set of exit cells
+- maze.rows, maze.cols
+- maze.walls OR maze.grid (optional fallback)
 """
 
-import time
-from maze import Maze, generate_random_maze
-from algorithms import bfs, dfs, astar, aco
-from algorithms_visual import bfs_visual, dfs_visual, astar_visual, aco_visual
-from visualizer import MazeVisualizer
+from __future__ import annotations
+
+import heapq
+import math
+import random
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set, Tuple
 
 
-class MazeSolverGame:
+Position = Tuple[int, int]
+
+
+@dataclass
+class SearchResult:
+    success: bool
+    path: List[Position]
+    explored: List[Position]
+    nodes_expanded: int
+    metadata: dict = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------
+# Utility helpers
+# ---------------------------------------------------------------------
+def _is_goal(pos: Position, maze) -> bool:
+    return pos in set(maze.exits)
+
+
+def _heuristic(pos: Position, exits) -> int:
+    """Manhattan distance to nearest exit."""
+    return min(abs(pos[0] - er) + abs(pos[1] - ec) for er, ec in exits)
+
+
+def _reconstruct_path(parent: Dict[Position, Optional[Position]], goal: Position) -> List[Position]:
+    path = []
+    current = goal
+    while current is not None:
+        path.append(current)
+        current = parent.get(current)
+    path.reverse()
+    return path
+
+
+def _in_bounds(maze, r: int, c: int) -> bool:
+    return 0 <= r < maze.rows and 0 <= c < maze.cols
+
+
+def _is_blocked_fallback(maze, pos: Position) -> bool:
     """
-    Main game controller that orchestrates maze solving visualization.
+    Best-effort fallback wall check for common Maze designs.
+    Adjust this if your maze.py uses a different representation.
     """
-
-    def __init__(self):
-        """Initialize the game with maze and visualizer."""
-        self.maze = Maze()
-        self.visualizer = MazeVisualizer(self.maze, "Maze Solver - Algorithm Comparison")
-
-        self.algorithms = {
-            '1': ('BFS', bfs),
-            '2': ('DFS', dfs),
-            '3': ('A*', astar),
-            '4': ('ACO', aco),
-        }
-
-        self.visual_algorithms = {
-            '1': ('BFS', bfs_visual),
-            '2': ('DFS', dfs_visual),
-            '3': ('A*', astar_visual),
-            '4': ('ACO', aco_visual),
-        }
-
-        self.running = True
-
-    def run_algorithm(self, algo_key, animate_exploration=True):
-        """
-        Run a single algorithm and visualize the result.
-
-        Args:
-            algo_key: '1' for BFS, '2' for DFS, '3' for A*, '4' for ACO
-            animate_exploration: Whether to animate the exploration process
-        """
-        if algo_key not in self.algorithms:
-            return
-
-        name, algorithm = self.algorithms[algo_key]
-
-        self.visualizer.stats['algorithm'] = name
-        self.visualizer.stats['status'] = 'Searching...'
-        self.visualizer.update()
-
-        if name != 'BFS':
-            bfs_result = bfs(self.maze)
-            if bfs_result.success:
-                self.visualizer.stats['optimal_length'] = len(bfs_result.path) - 1
-            else:
-                self.visualizer.stats['optimal_length'] = None
-        else:
-            self.visualizer.stats['optimal_length'] = None
-
-        start_time = time.perf_counter()
-        result = algorithm(self.maze)
-        end_time = time.perf_counter()
-
-        elapsed_ms = (end_time - start_time) * 1000
-
-        if name == 'BFS' and result.success:
-            self.visualizer.stats['optimal_length'] = len(result.path) - 1
-
-        if animate_exploration and result.explored and len(result.explored) <= 100:
-            self.visualizer.stats['status'] = 'Exploring...'
-            self.visualizer.animate_exploration(result.explored, delay=0.01)
-
-        self.visualizer.set_explored(result.explored)
-        self.visualizer.stats['nodes_explored'] = result.nodes_expanded
-
-        if result.success:
-            path_len = len(result.path) - 1
-            self.visualizer.stats['status'] = f'Found! ({elapsed_ms:.1f}ms)'
-            self.visualizer.set_path(result.path)
-            self.visualizer.update()
-
-            if path_len <= 20:
-                self.visualizer.stats['status'] = 'Drawing path...'
-                self.visualizer.animate_path_drawing(result.path, delay=0.03)
-                self.visualizer.update()
-                time.sleep(0.3)
-                self.visualizer.stats['status'] = 'Running solution...'
-                self.animate_solution(result.path, step_delay=0.12)
-            elif path_len <= 50:
-                self.visualizer.stats['status'] = f'Running solution ({path_len} steps)...'
-                self.animate_solution(result.path, step_delay=0.05)
-            else:
-                self.visualizer.stats['status'] = (
-                    f'Path found: {path_len} steps (too long for full animation)'
-                )
-                self.visualizer.update()
-                time.sleep(1)
-
-                step = max(1, path_len // 15)
-                quick_path = result.path[::step]
-                if not quick_path or quick_path[-1] != result.path[-1]:
-                    quick_path.append(result.path[-1])
-                self.animate_solution(quick_path, step_delay=0.08)
-        else:
-            self.visualizer.stats['status'] = 'No path found!'
-            self.visualizer.stats['path_length'] = 0
-
-        self.visualizer.update()
-
-    def animate_solution(self, path, step_delay=0.12):
-        """
-        Animate agent moving along the solution path.
-
-        Args:
-            path: List of (row, col) positions
-            step_delay: Seconds between each step
-        """
-        for pos in path:
-            event = self.visualizer.handle_events()
-            if event == 'q':
-                self.running = False
-                return
-            elif event == 'r':
-                self.reset()
-                return
-
-            self.visualizer.set_agent_position(pos)
-            self.visualizer.update()
-            time.sleep(step_delay)
-
-        self.visualizer.stats['status'] = 'Complete!'
-        if path:
-            final_pos = path[-1]
-            self.visualizer.pulse_cell(final_pos[0], final_pos[1], (255, 215, 0))
-        self.visualizer.update()
-
-    def reset(self):
-        """Reset the game state."""
-        self.visualizer.reset()
-        self.visualizer.update()
-
-    def generate_new_maze(self):
-        """Generate a new random maze."""
-        self.visualizer.stats['status'] = 'Generating new maze...'
-        self.visualizer.update()
-
-        self.maze = generate_random_maze(rows=10, cols=10, num_exits=3)
-
-        self.visualizer.close()
-        self.visualizer = MazeVisualizer(self.maze, "Maze Solver - Algorithm Comparison")
-
-        self.reset()
-        self.visualizer.stats['status'] = 'New maze generated! (Press 1/2/3/4 to solve)'
-
-        print(f"\nNew maze generated!")
-        print(f"Start: {self.maze.start}")
-        print(f"Exits: {self.maze.exits}")
-
-        self.visualizer.update()
-
-    def run_visual_algorithm(self, algo_key, step_delay=0.3):
-        """
-        Run algorithm with step-by-step visualization.
-
-        Args:
-            algo_key: '1' for BFS, '2' for DFS, '3' for A*, '4' for ACO
-            step_delay: Seconds between each step
-        """
-        if algo_key not in self.visual_algorithms:
-            return
-
-        name, visual_algo = self.visual_algorithms[algo_key]
-
-        self.reset()
-        self.visualizer.stats['algorithm'] = f'{name} (Step-by-Step)'
-        self.visualizer.stats['status'] = 'Press SPACE to step, F for fast, R to reset'
-        self.visualizer.update()
-
-        print(f"\n{'=' * 60}")
-        print(f"STEP-BY-STEP: {name}")
-        print(f"{'=' * 60}")
-        print("Controls: SPACE=next step, F=fast forward, S=slow auto, R=reset, Q=quit")
-        print("-" * 60)
-
-        algo_generator = visual_algo(self.maze)
-
-        auto_mode = False
-        current_delay = step_delay
-
-        for step in algo_generator:
-            self.visualizer.set_algorithm_step(step)
-            self.visualizer.set_agent_position(step.current_pos)
-
-            self.visualizer.stats['status'] = f'Step {step.step_num}: {step.action.upper()}'
-            self.visualizer.update()
-
-            print(f"Step {step.step_num}: {step.message}")
-
-            if hasattr(step, 'explored'):
-                self.visualizer.set_explored(step.explored)
-            if hasattr(step, 'path_so_far') and step.path_so_far:
-                self.visualizer.set_path(step.path_so_far)
-
-            if step.is_goal:
-                self.visualizer.stats['status'] = f'GOAL FOUND! Path: {len(step.path_so_far) - 1} steps'
-                self.visualizer.set_path(step.path_so_far)
-                self.visualizer.update()
-
-                print(f"\n*** GOAL REACHED! ***")
-                print(f"Final path length: {len(step.path_so_far) - 1} steps")
-                print(f"Total nodes explored: {len(step.explored)}")
-                time.sleep(1)
-
-                self.visualizer.algo_step = None
-                self.visualizer.stats['status'] = 'Animating solution...'
-                self.animate_solution(step.path_so_far, step_delay=0.1)
-                return
-
-            if step.action == 'fail':
-                self.visualizer.stats['status'] = 'NO PATH FOUND!'
-                self.visualizer.update()
-                print("\n*** NO PATH EXISTS ***")
-                time.sleep(2)
-                return
-
-            if auto_mode:
-                time.sleep(current_delay)
-                event = self.visualizer.handle_events()
-                if event == 'q':
-                    self.running = False
-                    return
-                elif event == 'r':
-                    self.reset()
-                    return
-                elif event == ' ':
-                    auto_mode = False
-            else:
-                waiting = True
-                while waiting:
-                    event = self.visualizer.handle_events()
-                    if event == 'q':
-                        self.running = False
-                        return
-                    elif event == 'r':
-                        self.reset()
-                        return
-                    elif event == ' ':
-                        waiting = False
-                    elif event == 'f':
-                        auto_mode = True
-                        current_delay = 0.1
-                        waiting = False
-                    elif event == 's':
-                        auto_mode = True
-                        current_delay = 0.5
-                        waiting = False
-
-                    self.visualizer.update()
-                    time.sleep(0.05)
-
-        self.visualizer.algo_step = None
-        self.visualizer.update()
-
-    def run(self):
-        """Main game loop."""
-        print("=" * 60)
-        print("MAZE SOLVER - Algorithm Comparison & Visualization")
-        print("=" * 60)
-        print(f"\nMaze: {self.maze.rows}x{self.maze.cols}")
-        print(f"Start: {self.maze.start}")
-        print(f"Exits: {self.maze.exits}")
-        print("\nControls:")
-        print("  1/2/3/4       - Run BFS/DFS/A*/ACO (fast)")
-        print("  Shift+1/2/3/4 - Run BFS/DFS/A*/ACO STEP-BY-STEP")
-        print("  C - Compare all algorithms")
-        print("  N - Generate new random maze")
-        print("  W - Toggle walls on/off")
-        print("  R - Reset")
-        print("  Q - Quit")
-        print("\nStep-by-step controls:")
-        print("  SPACE - Next step")
-        print("  F - Fast forward")
-        print("  S - Slow auto-play")
-        print("-" * 60)
-
-        self.visualizer.update()
-
-        while self.running:
-            event = self.visualizer.handle_events()
-
-            if event == 'q':
-                self.running = False
-
-            elif event == 'r':
-                self.reset()
-
-            elif event in ('1', '2', '3', '4'):
-                self.reset()
-                self.run_algorithm(event)
-
-            elif event in ('!', '@', '#', '$'):
-                key_map = {'!': '1', '@': '2', '#': '3', '$': '4'}
-                self.run_visual_algorithm(key_map[event])
-
-            elif event == 'c':
-                self.run_comparison()
-
-            elif event == 'n':
-                self.generate_new_maze()
-
-            elif event == 'w':
-                status = self.visualizer.toggle_walls()
-                self.reset()
-                self.visualizer.stats['status'] = status
-                self.visualizer.update()
-
-            self.visualizer.update()
-
-        self.visualizer.close()
-        print("\nGoodbye!")
-
-    def run_comparison(self):
-        """
-        Run all algorithms and display comparison results visually.
-        """
-        self.reset()
-        self.visualizer.stats['algorithm'] = 'Comparing...'
-        self.visualizer.stats['status'] = 'Running all algorithms...'
-        self.visualizer.update()
-
-        results = {}
-        all_paths = {}
-        raw_results = {}
-
-        for key, (name, algorithm) in self.algorithms.items():
-            self.visualizer.stats['status'] = f'Running {name}...'
-            self.visualizer.update()
-
-            start_time = time.perf_counter()
-            result = algorithm(self.maze)
-            elapsed = (time.perf_counter() - start_time) * 1000
-
-            raw_results[name] = {
-                'result': result,
-                'time_ms': elapsed,
-            }
-            all_paths[name] = result.path if result.success else []
-
-            time.sleep(0.15)
-
-        optimal_length = None
-        if raw_results['BFS']['result'].success:
-            optimal_length = len(raw_results['BFS']['result'].path) - 1
-
-        for name, data in raw_results.items():
-            result = data['result']
-            reward = self.calculate_reward(result, optimal_length)
-
-            results[name] = {
-                'success': result.success,
-                'path_length': len(result.path) - 1 if result.path else 0,
-                'nodes_expanded': result.nodes_expanded,
-                'time_ms': data['time_ms'],
-                'reward': reward,
-            }
-
-        self.visualizer.set_comparison_results(results)
-        self.visualizer.stats['algorithm'] = 'All'
-        self.visualizer.stats['status'] = 'Comparison complete!'
-        self.visualizer.update()
-
-        print("\n" + "=" * 82)
-        print("ALGORITHM COMPARISON RESULTS")
-        print("=" * 82)
-        print(f"{'Algorithm':<10} {'Success':<10} {'Path':<8} {'Nodes':<8} {'Time (ms)':<12} {'Reward':<8}")
-        print("-" * 82)
-
-        display_order = ['BFS', 'DFS', 'A*', 'ACO']
-        for name in display_order:
-            data = results.get(name)
-            if not data:
-                continue
-            print(
-                f"{name:<10} {str(data['success']):<10} {data['path_length']:<8} "
-                f"{data['nodes_expanded']:<8} {data['time_ms']:<12.2f} {data['reward']:<8.0f}"
+    r, c = pos
+
+    # Case 1: maze.walls is a set of blocked cells
+    if hasattr(maze, "walls"):
+        walls = maze.walls
+        if isinstance(walls, set):
+            return pos in walls
+
+    # Case 2: maze.grid with 1 = wall, 0 = free
+    if hasattr(maze, "grid"):
+        grid = maze.grid
+        try:
+            return grid[r][c] == 1
+        except Exception:
+            pass
+
+    # Case 3: maze.maze with 1 = wall
+    if hasattr(maze, "maze"):
+        grid = maze.maze
+        try:
+            return grid[r][c] == 1
+        except Exception:
+            pass
+
+    return False
+
+
+def _get_neighbors(maze, pos: Position) -> List[Position]:
+    """
+    Tries multiple Maze APIs before falling back to manual 4-direction moves.
+    """
+    for method_name in ("get_neighbors", "get_valid_neighbors", "neighbors"):
+        if hasattr(maze, method_name):
+            method = getattr(maze, method_name)
+            try:
+                neighbors = method(pos)
+                if neighbors is not None:
+                    return list(neighbors)
+            except TypeError:
+                pass
+
+    r, c = pos
+    candidates = [(r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)]
+    valid = []
+
+    for nr, nc in candidates:
+        if not _in_bounds(maze, nr, nc):
+            continue
+        if _is_blocked_fallback(maze, (nr, nc)):
+            continue
+        valid.append((nr, nc))
+
+    return valid
+
+
+# ---------------------------------------------------------------------
+# BFS
+# ---------------------------------------------------------------------
+def bfs(maze) -> SearchResult:
+    start = maze.start
+    exits = set(maze.exits)
+
+    queue = deque([start])
+    visited: Set[Position] = {start}
+    parent: Dict[Position, Optional[Position]] = {start: None}
+    explored: List[Position] = []
+    nodes_expanded = 0
+
+    while queue:
+        current = queue.popleft()
+        explored.append(current)
+        nodes_expanded += 1
+
+        if current in exits:
+            return SearchResult(
+                success=True,
+                path=_reconstruct_path(parent, current),
+                explored=explored,
+                nodes_expanded=nodes_expanded,
             )
 
-        print("=" * 82)
+        for neighbor in _get_neighbors(maze, current):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                parent[neighbor] = current
+                queue.append(neighbor)
 
-        for algo_name in display_order:
-            path = all_paths.get(algo_name, [])
-            if not path:
-                continue
-
-            if len(path) > 30:
-                self.visualizer.stats['status'] = f'{algo_name}: {len(path) - 1} steps (skipping animation)'
-                self.visualizer.update()
-                time.sleep(1)
-                continue
-
-            self.visualizer.stats['status'] = f'Showing {algo_name} path...'
-            self.visualizer.set_path(path)
-            self.visualizer.set_agent_position(self.maze.start)
-            self.visualizer.update()
-            time.sleep(0.3)
-
-            for pos in path:
-                event = self.visualizer.handle_events()
-                if event in ('q', 'r'):
-                    if event == 'q':
-                        self.running = False
-                    return
-
-                self.visualizer.set_agent_position(pos)
-                self.visualizer.update()
-                time.sleep(0.08)
-
-            time.sleep(0.5)
-
-        self.visualizer.stats['status'] = 'Comparison complete! (Press R to reset)'
-        self.visualizer.set_agent_position(self.maze.start)
-        self.visualizer.update()
-
-    def calculate_reward(self, result, optimal_path_length=None):
-        """
-        Calculate reward score for an algorithm result.
-
-        Reward Components:
-        1. SUCCESS_BONUS: +100 for finding any path
-        2. PATH_EFFICIENCY: Up to +100 for optimal/near-optimal path
-        3. EXPLORATION_EFFICIENCY: Up to +50 for minimal node expansion
-        """
-        if not result.success:
-            return 0
-
-        path_len = len(result.path) - 1
-        nodes = result.nodes_expanded
-
-        reward = 100
-
-        if optimal_path_length is not None:
-            optimal = optimal_path_length
-        else:
-            optimal = 10
-
-        if path_len <= optimal:
-            path_bonus = 100
-        else:
-            path_bonus = max(0, 100 - (path_len - optimal) * 10)
-        reward += path_bonus
-
-        if nodes <= 30:
-            explore_bonus = 50
-        elif nodes <= 50:
-            explore_bonus = 40
-        elif nodes <= 100:
-            explore_bonus = 25
-        elif nodes <= 150:
-            explore_bonus = 10
-        else:
-            explore_bonus = 0
-        reward += explore_bonus
-
-        return reward
+    return SearchResult(
+        success=False,
+        path=[],
+        explored=explored,
+        nodes_expanded=nodes_expanded,
+    )
 
 
-def main():
-    """Entry point."""
-    game = MazeSolverGame()
-    game.run()
+# ---------------------------------------------------------------------
+# DFS
+# ---------------------------------------------------------------------
+def dfs(maze) -> SearchResult:
+    start = maze.start
+    exits = set(maze.exits)
+
+    stack = [start]
+    visited: Set[Position] = {start}
+    parent: Dict[Position, Optional[Position]] = {start: None}
+    explored: List[Position] = []
+    nodes_expanded = 0
+
+    while stack:
+        current = stack.pop()
+        explored.append(current)
+        nodes_expanded += 1
+
+        if current in exits:
+            return SearchResult(
+                success=True,
+                path=_reconstruct_path(parent, current),
+                explored=explored,
+                nodes_expanded=nodes_expanded,
+            )
+
+        neighbors = list(_get_neighbors(maze, current))
+        neighbors.reverse()  # keeps traversal visually stable in many layouts
+
+        for neighbor in neighbors:
+            if neighbor not in visited:
+                visited.add(neighbor)
+                parent[neighbor] = current
+                stack.append(neighbor)
+
+    return SearchResult(
+        success=False,
+        path=[],
+        explored=explored,
+        nodes_expanded=nodes_expanded,
+    )
 
 
-if __name__ == "__main__":
-    main()
+# ---------------------------------------------------------------------
+# A*
+# ---------------------------------------------------------------------
+def astar(maze) -> SearchResult:
+    start = maze.start
+    exits = set(maze.exits)
+
+    open_heap = []
+    heapq.heappush(open_heap, (_heuristic(start, exits), 0, start))
+
+    parent: Dict[Position, Optional[Position]] = {start: None}
+    g_score: Dict[Position, int] = {start: 0}
+    visited: Set[Position] = set()
+    explored: List[Position] = []
+    nodes_expanded = 0
+
+    while open_heap:
+        _, current_g, current = heapq.heappop(open_heap)
+
+        if current in visited:
+            continue
+
+        visited.add(current)
+        explored.append(current)
+        nodes_expanded += 1
+
+        if current in exits:
+            return SearchResult(
+                success=True,
+                path=_reconstruct_path(parent, current),
+                explored=explored,
+                nodes_expanded=nodes_expanded,
+            )
+
+        for neighbor in _get_neighbors(maze, current):
+            tentative_g = current_g + 1
+
+            if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                g_score[neighbor] = tentative_g
+                parent[neighbor] = current
+                f_score = tentative_g + _heuristic(neighbor, exits)
+                heapq.heappush(open_heap, (f_score, tentative_g, neighbor))
+
+    return SearchResult(
+        success=False,
+        path=[],
+        explored=explored,
+        nodes_expanded=nodes_expanded,
+    )
+
+
+# ---------------------------------------------------------------------
+# ACO helpers
+# ---------------------------------------------------------------------
+def _path_length(path: List[Position]) -> int:
+    return max(0, len(path) - 1)
+
+
+def _weighted_choice(candidates, weights):
+    total = sum(weights)
+    if total <= 0:
+        return random.choice(candidates)
+
+    pick = random.uniform(0, total)
+    running = 0.0
+    for candidate, weight in zip(candidates, weights):
+        running += weight
+        if pick <= running:
+            return candidate
+    return candidates[-1]
+
+
+def _build_ant_path(
+    maze,
+    pheromone: Dict[Tuple[Position, Position], float],
+    alpha: float,
+    beta: float,
+    max_steps: int,
+):
+    """
+    One ant performs a probabilistic walk from start to any exit.
+    Returns:
+        path, explored_cells, success
+    """
+    start = maze.start
+    exits = set(maze.exits)
+
+    current = start
+    path = [current]
+    explored = [current]
+    visited_in_path = {current}
+
+    for _ in range(max_steps):
+        if current in exits:
+            return path, explored, True
+
+        neighbors = _get_neighbors(maze, current)
+
+        if not neighbors:
+            return path, explored, False
+
+        # Prefer unvisited neighbors first; if none, allow revisits
+        candidates = [n for n in neighbors if n not in visited_in_path]
+        if not candidates:
+            candidates = neighbors
+
+        weights = []
+        for nxt in candidates:
+            edge = (current, nxt)
+            tau = pheromone.get(edge, 1.0)
+
+            # Heuristic = inverse of distance to nearest exit
+            dist = _heuristic(nxt, exits)
+            eta = 1.0 / (dist + 1)
+
+            score = (tau ** alpha) * (eta ** beta)
+            weights.append(score)
+
+        next_cell = _weighted_choice(candidates, weights)
+
+        current = next_cell
+        path.append(current)
+        explored.append(current)
+        visited_in_path.add(current)
+
+        if current in exits:
+            return path, explored, True
+
+    return path, explored, False
+
+
+def _deposit_pheromone(
+    pheromone: Dict[Tuple[Position, Position], float],
+    path: List[Position],
+    amount: float,
+):
+    if len(path) < 2:
+        return
+
+    for i in range(len(path) - 1):
+        a = path[i]
+        b = path[i + 1]
+        pheromone[(a, b)] = pheromone.get((a, b), 1.0) + amount
+        pheromone[(b, a)] = pheromone.get((b, a), 1.0) + amount
+
+
+# ---------------------------------------------------------------------
+# ACO
+# ---------------------------------------------------------------------
+def aco(
+    maze,
+    num_ants: int = 20,
+    num_iterations: int = 35,
+    alpha: float = 1.0,
+    beta: float = 3.0,
+    evaporation_rate: float = 0.25,
+    q: float = 100.0,
+    max_steps_multiplier: int = 4,
+) -> SearchResult:
+    """
+    Ant Colony Optimization for maze solving.
+
+    Notes:
+    - ACO is probabilistic, so results may vary across runs.
+    - BFS remains your shortest-path reference for comparison.
+    """
+    start = maze.start
+    exits = set(maze.exits)
+
+    if start in exits:
+        return SearchResult(
+            success=True,
+            path=[start],
+            explored=[start],
+            nodes_expanded=1,
+            metadata={"iterations": 0, "ants": 0},
+        )
+
+    all_cells = [
+        (r, c)
+        for r in range(maze.rows)
+        for c in range(maze.cols)
+        if not _is_blocked_fallback(maze, (r, c))
+    ]
+
+    # Initialize pheromone on visible transitions
+    pheromone: Dict[Tuple[Position, Position], float] = {}
+    for cell in all_cells:
+        for nbr in _get_neighbors(maze, cell):
+            pheromone[(cell, nbr)] = 1.0
+
+    max_steps = max(maze.rows * maze.cols * max_steps_multiplier, 20)
+
+    global_explored: List[Position] = []
+    global_explored_seen: Set[Position] = set()
+    nodes_expanded = 0
+
+    best_path: List[Position] = []
+    best_len = math.inf
+
+    for _ in range(num_iterations):
+        iteration_successes = []
+
+        for _ant in range(num_ants):
+            ant_path, ant_explored, success = _build_ant_path(
+                maze=maze,
+                pheromone=pheromone,
+                alpha=alpha,
+                beta=beta,
+                max_steps=max_steps,
+            )
+
+            nodes_expanded += len(ant_explored)
+
+            for cell in ant_explored:
+                if cell not in global_explored_seen:
+                    global_explored_seen.add(cell)
+                    global_explored.append(cell)
+
+            if success:
+                length = _path_length(ant_path)
+                iteration_successes.append((ant_path, length))
+
+                if length < best_len:
+                    best_len = length
+                    best_path = ant_path[:]
+
+        # Evaporation
+        for edge in list(pheromone.keys()):
+            pheromone[edge] *= (1.0 - evaporation_rate)
+            if pheromone[edge] < 0.01:
+                pheromone[edge] = 0.01
+
+        # Deposit pheromone for successful ants
+        for ant_path, length in iteration_successes:
+            deposit = q / max(1, length)
+            _deposit_pheromone(pheromone, ant_path, deposit)
+
+    success = len(best_path) > 0 and best_path[-1] in exits
+
+    return SearchResult(
+        success=success,
+        path=best_path if success else [],
+        explored=global_explored,
+        nodes_expanded=nodes_expanded,
+        metadata={
+            "iterations": num_iterations,
+            "ants": num_ants,
+            "best_length": best_len if success else None,
+        },
+    )
