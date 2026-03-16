@@ -1,23 +1,42 @@
-# Virtual environment
+# Virtual environments
 venv/
 env/
 .venv/
 
-# Python cache
+# Python cache / compiled files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 
-# Claude
-.claude/
+# Build / distribution
+build/
+dist/
+*.egg-info/
+.eggs/
 
-# IDE
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checker / linter caches
+.mypy_cache/
+.ruff_cache/
+
+# Pygame / runtime noise
+*.log
+
+# IDE / editor
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
+
+# Project-specific
+.claude/
