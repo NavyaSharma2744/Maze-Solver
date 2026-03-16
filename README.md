@@ -33,9 +33,10 @@ venv\Scripts\activate     # On Windows
 
 # Install dependencies
 pip install pygame-ce
+or
+python -m pip install -U pygame-ce
 
 ## Running
-
 ```bash
 python main.py
 ```
