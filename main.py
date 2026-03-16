@@ -1,13 +1,14 @@
 """
 Maze Solver - Main Entry Point
 ==============================
-A visual maze solver demonstrating BFS, DFS, and A* search algorithms.
+A visual maze solver demonstrating BFS, DFS, A*, and Ant Colony Optimization (ACO).
 
 Controls:
-    1/2/3       - Run BFS/DFS/A* (fast)
-    Shift+1/2/3 - Run BFS/DFS/A* step-by-step
+    1/2/3/4       - Run BFS/DFS/A*/ACO (fast)
+    Shift+1/2/3/4 - Run BFS/DFS/A*/ACO step-by-step
     C - Compare all algorithms
     N - Generate new random maze
+    W - Toggle walls on/off
     R - Reset
     Q - Quit
 
@@ -22,8 +23,8 @@ Usage:
 
 import time
 from maze import Maze, generate_random_maze
-from algorithms import bfs, dfs, astar
-from algorithms_visual import bfs_visual, dfs_visual, astar_visual
+from algorithms import bfs, dfs, astar, aco
+from algorithms_visual import bfs_visual, dfs_visual, astar_visual, aco_visual
 from visualizer import MazeVisualizer
 
 
@@ -45,6 +46,7 @@ class MazeSolverGame:
             '1': ('BFS', bfs),
             '2': ('DFS', dfs),
             '3': ('A*', astar),
+            '4': ('ACO', aco),
         }
 
         # Visual (step-by-step) algorithms
@@ -52,6 +54,7 @@ class MazeSolverGame:
             '1': ('BFS', bfs_visual),
             '2': ('DFS', dfs_visual),
             '3': ('A*', astar_visual),
+            '4': ('ACO', aco_visual),
         }
 
         # Current state
@@ -62,7 +65,7 @@ class MazeSolverGame:
         Run a single algorithm and visualize the result.
 
         Args:
-            algo_key: '1' for BFS, '2' for DFS, '3' for A*
+            algo_key: '1' for BFS, '2' for DFS, '3' for A*, '4' for ACO
             animate_exploration: Whether to animate the exploration process
         """
         if algo_key not in self.algorithms:
@@ -76,10 +79,13 @@ class MazeSolverGame:
         self.visualizer.update()
 
         # Get optimal path length from BFS (for comparison)
+        # BFS is used as the shortest-path reference for all other algorithms
         if name != 'BFS':
             bfs_result = bfs(self.maze)
             if bfs_result.success:
                 self.visualizer.stats['optimal_length'] = len(bfs_result.path) - 1
+            else:
+                self.visualizer.stats['optimal_length'] = None
         else:
             self.visualizer.stats['optimal_length'] = None  # BFS is always optimal
 
@@ -94,7 +100,8 @@ class MazeSolverGame:
         if name == 'BFS' and result.success:
             self.visualizer.stats['optimal_length'] = len(result.path) - 1
 
-        # Animate exploration if enabled (skip for very long explorations)
+        # Animate exploration if enabled
+        # For ACO, explored may be larger/noisier, so keep the same cap
         if animate_exploration and result.explored and len(result.explored) <= 100:
             self.visualizer.stats['status'] = 'Exploring...'
             self.visualizer.animate_exploration(result.explored, delay=0.01)
@@ -124,12 +131,16 @@ class MazeSolverGame:
                 self.animate_solution(result.path, step_delay=0.05)
             else:
                 # Very long path - show quick preview only
-                self.visualizer.stats['status'] = f'Path found: {path_len} steps (too long for full animation)'
+                self.visualizer.stats['status'] = (
+                    f'Path found: {path_len} steps (too long for full animation)'
+                )
                 self.visualizer.update()
                 time.sleep(1)
                 # Quick animation - just show key points
                 step = max(1, path_len // 15)
-                quick_path = result.path[::step] + [result.path[-1]]
+                quick_path = result.path[::step]
+                if not quick_path or quick_path[-1] != result.path[-1]:
+                    quick_path.append(result.path[-1])
                 self.animate_solution(quick_path, step_delay=0.08)
         else:
             self.visualizer.stats['status'] = 'No path found!'
@@ -186,7 +197,7 @@ class MazeSolverGame:
 
         # Reset state
         self.reset()
-        self.visualizer.stats['status'] = 'New maze generated! (Press 1/2/3 to solve)'
+        self.visualizer.stats['status'] = 'New maze generated! (Press 1/2/3/4 to solve)'
 
         print(f"\nNew maze generated!")
         print(f"Start: {self.maze.start}")
@@ -198,10 +209,11 @@ class MazeSolverGame:
         """
         Run algorithm with step-by-step visualization.
 
-        Shows each step: what's popped, what's pushed, queue/stack state.
+        Shows each step: what's popped, what's pushed, queue/stack state,
+        or iteration progress for ACO.
 
         Args:
-            algo_key: '1' for BFS, '2' for DFS, '3' for A*
+            algo_key: '1' for BFS, '2' for DFS, '3' for A*, '4' for ACO
             step_delay: Seconds between each step (can be adjusted)
         """
         if algo_key not in self.visual_algorithms:
@@ -214,13 +226,13 @@ class MazeSolverGame:
         self.visualizer.stats['status'] = 'Press SPACE to step, F for fast, R to reset'
         self.visualizer.update()
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"STEP-BY-STEP: {name}")
-        print(f"{'='*60}")
-        print("Controls: SPACE=next step, F=fast forward, R=reset, Q=quit")
+        print(f"{'=' * 60}")
+        print("Controls: SPACE=next step, F=fast forward, S=slow auto, R=reset, Q=quit")
         print("-" * 60)
 
-        # Get the generator (no enemy for visual mode - pure algorithm demo)
+        # Get the generator
         algo_generator = visual_algo(self.maze)
 
         auto_mode = False
@@ -237,13 +249,20 @@ class MazeSolverGame:
             # Print to console
             print(f"Step {step.step_num}: {step.message}")
 
+            # Keep explored/path synced if available in the step object
+            if hasattr(step, 'explored'):
+                self.visualizer.set_explored(step.explored)
+            if hasattr(step, 'path_so_far') and step.path_so_far:
+                self.visualizer.set_path(step.path_so_far)
+
             # Check if goal found
             if step.is_goal:
-                self.visualizer.stats['status'] = f'GOAL FOUND! Path: {len(step.path_so_far)-1} steps'
+                self.visualizer.stats['status'] = f'GOAL FOUND! Path: {len(step.path_so_far) - 1} steps'
                 self.visualizer.set_path(step.path_so_far)
                 self.visualizer.update()
+
                 print(f"\n*** GOAL REACHED! ***")
-                print(f"Final path length: {len(step.path_so_far)-1} steps")
+                print(f"Final path length: {len(step.path_so_far) - 1} steps")
                 print(f"Total nodes explored: {len(step.explored)}")
                 time.sleep(1)
 
@@ -263,6 +282,7 @@ class MazeSolverGame:
             # Wait for user input or auto-advance
             if auto_mode:
                 time.sleep(current_delay)
+
                 # Check for events during auto mode
                 event = self.visualizer.handle_events()
                 if event == 'q':
@@ -311,10 +331,11 @@ class MazeSolverGame:
         print(f"Start: {self.maze.start}")
         print(f"Exits: {self.maze.exits}")
         print("\nControls:")
-        print("  1/2/3       - Run BFS/DFS/A* (fast)")
-        print("  Shift+1/2/3 - Run BFS/DFS/A* STEP-BY-STEP")
+        print("  1/2/3/4       - Run BFS/DFS/A*/ACO (fast)")
+        print("  Shift+1/2/3/4 - Run BFS/DFS/A*/ACO STEP-BY-STEP")
         print("  C - Compare all algorithms")
         print("  N - Generate new random maze")
+        print("  W - Toggle walls on/off")
         print("  R - Reset")
         print("  Q - Quit")
         print("\nStep-by-step controls:")
@@ -334,13 +355,12 @@ class MazeSolverGame:
             elif event == 'r':
                 self.reset()
 
-            elif event in ('1', '2', '3'):
+            elif event in ('1', '2', '3', '4'):
                 self.reset()
                 self.run_algorithm(event)
 
-            elif event in ('!', '@', '#'):  # Shift + 1/2/3
-                # Map to visual mode
-                key_map = {'!': '1', '@': '2', '#': '3'}
+            elif event in ('!', '@', '#', '$'):  # Shift + 1/2/3/4
+                key_map = {'!': '1', '@': '2', '#': '3', '$': '4'}
                 self.run_visual_algorithm(key_map[event])
 
             elif event == 'c':
@@ -351,8 +371,9 @@ class MazeSolverGame:
 
             elif event == 'w':
                 status = self.visualizer.toggle_walls()
-                self.visualizer.stats['status'] = status
                 self.reset()
+                self.visualizer.stats['status'] = status
+                self.visualizer.update()
 
             # Keep updating display
             self.visualizer.update()
@@ -415,33 +436,40 @@ class MazeSolverGame:
         self.visualizer.update()
 
         # Print to console too
-        print("\n" + "=" * 70)
+        print("\n" + "=" * 82)
         print("ALGORITHM COMPARISON RESULTS")
-        print("=" * 70)
+        print("=" * 82)
         print(f"{'Algorithm':<10} {'Success':<10} {'Path':<8} {'Nodes':<8} {'Time (ms)':<12} {'Reward':<8}")
-        print("-" * 70)
+        print("-" * 82)
 
-        for name, data in results.items():
-            print(f"{name:<10} {str(data['success']):<10} {data['path_length']:<8} "
-                  f"{data['nodes_expanded']:<8} {data['time_ms']:<12.2f} {data['reward']:<8.0f}")
+        display_order = ['BFS', 'DFS', 'A*', 'ACO']
+        for name in display_order:
+            data = results.get(name)
+            if not data:
+                continue
+            print(
+                f"{name:<10} {str(data['success']):<10} {data['path_length']:<8} "
+                f"{data['nodes_expanded']:<8} {data['time_ms']:<12.2f} {data['reward']:<8.0f}"
+            )
 
-        print("=" * 70)
+        print("=" * 82)
 
         # Animate each algorithm's path sequentially
         algo_colors = {
             'BFS': (100, 180, 255),
             'DFS': (255, 180, 100),
             'A*': (100, 255, 150),
+            'ACO': (220, 120, 255),
         }
 
-        for algo_name in ['BFS', 'DFS', 'A*']:
+        for algo_name in display_order:
             path = all_paths.get(algo_name, [])
             if not path:
                 continue
 
-            # Skip DFS if path is too long (would take forever to animate)
+            # Skip very long animations
             if len(path) > 30:
-                self.visualizer.stats['status'] = f'{algo_name}: {len(path)-1} steps (skipping animation)'
+                self.visualizer.stats['status'] = f'{algo_name}: {len(path) - 1} steps (skipping animation)'
                 self.visualizer.update()
                 time.sleep(1)
                 continue
@@ -498,10 +526,10 @@ class MazeSolverGame:
 
         # 2. Path efficiency bonus (0-100 points)
         # Optimal path gets 100, longer paths get less
-        if optimal_path_length:
+        if optimal_path_length is not None:
             optimal = optimal_path_length
         else:
-            optimal = 10  # Estimated optimal for default maze
+            optimal = 10  # fallback estimate
 
         if path_len <= optimal:
             path_bonus = 100
