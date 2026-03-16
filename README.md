@@ -1,26 +1,28 @@
-
 # Maze Solver
 
-A visual maze solver demonstrating BFS, DFS, and A* search algorithms with step-by-step animation.
-
-## Demo
-
-https://github.com/user-attachments/assets/3afea3b6-720d-431e-bb30-273b0c20b4b0
+A visual maze solver demonstrating **BFS, DFS, A\***, and **Ant Colony Optimization (ACO)** with step-by-step animation and algorithm comparison.
 
 ## Features
 
-- **Three algorithms**: BFS (Queue), DFS (Stack), A* (Priority Queue)
-- **Step-by-step visualization**: Watch the algorithm explore the maze
-- **Algorithm comparison**: See path length, nodes explored, time, and reward metrics
-- **Random maze generation**: Generate new mazes on the fly
-- **Multi-exit support**qqc: Mazes can have multiple exits
-- **Wall toggle**: Remove/restore walls to see how algorithms behave
+- **Four algorithms**
+  - **BFS** (Queue)
+  - **DFS** (Stack)
+  - **A\*** (Priority Queue)
+  - **ACO** (Ant Colony Optimization)
+- **Step-by-step visualization**  
+  Watch each algorithm explore the maze in real time.
+- **Algorithm comparison**  
+  Compare path length, nodes explored, execution time, and reward/performance metrics.
+- **Random maze generation**  
+  Generate new mazes on the fly.
+- **Multi-exit support**  
+  Mazes can have multiple exits.
+- **Wall toggle**  
+  Remove or restore walls to observe how each algorithm behaves differently.
 
 ## Setup
-clear
 
-```bashcd path/to/your/maze-solver
-
+```bash
 # Create virtual environment
 python3 -m venv venv
 
@@ -31,7 +33,6 @@ venv\Scripts\activate     # On Windows
 
 # Install dependencies
 pip install pygame-ce
-```
 
 ## Running
 
@@ -46,6 +47,7 @@ python main.py
 | `1` | Run BFS (step-by-step) |
 | `2` | Run DFS (step-by-step) |
 | `3` | Run A* (step-by-step) |
+| `4` | Run ACO (step-by-step) |
 | `C` | Compare all algorithms |
 | `N` | Generate new random maze |
 | `W` | Toggle walls on/off |
@@ -71,4 +73,5 @@ python main.py
 ## Tech Stack
 
 **Python** • **Pygame-ce** • **Queue** • **Stack** • **Priority Queue**
+
 
